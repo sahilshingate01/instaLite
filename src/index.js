@@ -74,6 +74,19 @@ app.patch("/users/:id", async (req, res) => {
   }
 });
 
+app.delete("/users/:id", async (req, res) => {
+  try {
+    await prisma.user.delete({
+      where: {
+        id: Number(req.params.id),
+      },
+    });
+    res.status(204).send();
+  } catch (err) {
+    res.status(404).json({ error: "User not found" });
+  }
+});
+
 app.listen(3000, () => {
   console.log("Server started on port 3000");
 });
