@@ -1,0 +1,24 @@
+{
+  "name": "instalite",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sahilshingate01/instaLite.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/sahilshingate01/instaLite/issues"
+  },
+  "homepage": "https://github.com/sahilshingate01/instaLite#readme",
+  "dependencies": {
+    "express": "^5.3.0"
+  }
+}
