@@ -1,4 +1,4 @@
-const { createPost } = require("../services/posts.service");
+const { createPost, listPosts } = require("../services/posts.service");
 
 const create = async (req, res) => {
   try {
@@ -22,6 +22,12 @@ const create = async (req, res) => {
   }
 };
 
+const list = async (req, res) => {
+  const result = await listPosts();
+  res.json(result);
+};
+
 module.exports = {
   create,
+  list,
 };
