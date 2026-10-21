@@ -45,6 +45,18 @@ app.get("/users", async (req, res) => {
   res.json(result);
 });
 
+app.get("/users/:id", async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: Number(req.params.id) },
+  });
+
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  res.json(user);
+});
+
 app.listen(3000, () => {
   console.log("Server started on port 3000");
 });
