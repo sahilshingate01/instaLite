@@ -3,6 +3,7 @@ const {
   listPosts,
   getPostById,
   updatePost,
+  deletePost,
 } = require("../services/posts.service");
 
 const create = async (req, res) => {
@@ -53,9 +54,19 @@ const update = async (req, res) => {
   }
 };
 
+const remove = async (req, res) => {
+  try {
+    await deletePost(Number(req.params.id));
+    res.status(204).send();
+  } catch (err) {
+    res.status(404).json({ error: "Post not found" });
+  }
+};
+
 module.exports = {
   create,
   list,
   getOne,
   update,
+  remove,
 };
