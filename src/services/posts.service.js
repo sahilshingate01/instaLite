@@ -16,8 +16,16 @@ const getPostById = async (id) => {
   });
 };
 
+const updatePost = async (id, data) => {
+  return await prisma.post.update({
+    where: { id },
+    data,
+  });
+};
+
 module.exports = {
   createPost,
   listPosts,
   getPostById,
+  updatePost,
 };
