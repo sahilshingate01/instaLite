@@ -8,12 +8,17 @@ const {
 
 const create = async (req, res) => {
   try {
-    const { imageUrl, caption, location } = req.body || {};
-    if (!imageUrl) {
-      return res.status(400).json({ error: "imageUrl is required" });
+    const { imageUrl, authorId, caption, location } = req.body || {};
+    if (!imageUrl || authorId === undefined || authorId === null) {
+      return res
+        .status(400)
+        .json({ error: "imageUrl and authorId are required" });
     }
 
-    const postData = { imageUrl };
+    const postData = {
+      imageUrl,
+      authorId: Number(authorId),
+    };
     if (caption !== undefined) {
       postData.caption = caption;
     }
@@ -24,6 +29,9 @@ const create = async (req, res) => {
     const result = await createPost(postData);
     res.status(201).json(result);
   } catch (err) {
+    if (err.code === "P2003") {
+      return res.status(404).json({ error: "User not found" });
+    }
     res.status(500).json({ error: "Something went wrong" });
   }
 };
