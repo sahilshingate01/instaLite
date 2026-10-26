@@ -77,10 +77,29 @@ const list = async (req, res) => {
     order = req.query.order;
   }
 
+  if (req.query.isPrivate !== undefined) {
+    if (req.query.isPrivate !== "true" && req.query.isPrivate !== "false") {
+      return res.status(400).json({ error: "isPrivate must be true or false" });
+    }
+  }
+
+  const where = {};
+  if (req.query.isPrivate !== undefined) {
+    where.isPrivate = req.query.isPrivate === "true";
+  }
+
+  if (req.query.search) {
+    where.OR = [
+      { username: { contains: req.query.search, mode: "insensitive" } },
+      { fullname: { contains: req.query.search, mode: "insensitive" } },
+    ];
+  }
+
   const { data, total } = await listUsers({
     skip: (page - 1) * limit,
     take: limit,
     orderBy: { [sortBy]: order },
+    where,
   });
 
   const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
