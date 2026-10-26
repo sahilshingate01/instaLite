@@ -57,10 +57,30 @@ const list = async (req, res) => {
     }
   }
 
+  const allowedSortBy = ["createdAt", "username", "fullname"];
+  let sortBy = "createdAt";
+  if (req.query.sortBy !== undefined) {
+    if (!allowedSortBy.includes(req.query.sortBy)) {
+      return res
+        .status(400)
+        .json({ error: "sortBy must be one of: createdAt, username, fullname" });
+    }
+    sortBy = req.query.sortBy;
+  }
+
+  const allowedOrder = ["asc", "desc"];
+  let order = "desc";
+  if (req.query.order !== undefined) {
+    if (!allowedOrder.includes(req.query.order)) {
+      return res.status(400).json({ error: "order must be asc or desc" });
+    }
+    order = req.query.order;
+  }
+
   const { data, total } = await listUsers({
     skip: (page - 1) * limit,
     take: limit,
-    orderBy: { createdAt: "desc" },
+    orderBy: { [sortBy]: order },
   });
 
   const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
