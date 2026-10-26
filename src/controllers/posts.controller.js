@@ -28,6 +28,12 @@ const create = async (req, res) => {
   }
 };
 
+const isValidDate = (val) => {
+  if (typeof val !== "string" || !val.trim()) return false;
+  const d = new Date(val);
+  return !isNaN(d.getTime());
+};
+
 const isPositiveInteger = (val) => {
   if (typeof val !== "string") return false;
   return /^[1-9]\d*$/.test(val);
@@ -78,10 +84,53 @@ const list = async (req, res) => {
     order = req.query.order;
   }
 
+  if (req.query.from !== undefined) {
+    if (!isValidDate(req.query.from)) {
+      return res
+        .status(400)
+        .json({ error: "from and to must be valid dates" });
+    }
+  }
+
+  if (req.query.to !== undefined) {
+    if (!isValidDate(req.query.to)) {
+      return res
+        .status(400)
+        .json({ error: "from and to must be valid dates" });
+    }
+  }
+
+  const where = {};
+
+  if (req.query.location !== undefined && req.query.location !== "") {
+    where.location = {
+      equals: req.query.location,
+      mode: "insensitive",
+    };
+  }
+
+  if (req.query.search !== undefined && req.query.search !== "") {
+    where.caption = {
+      contains: req.query.search,
+      mode: "insensitive",
+    };
+  }
+
+  if (req.query.from !== undefined || req.query.to !== undefined) {
+    where.createdAt = {};
+    if (req.query.from !== undefined) {
+      where.createdAt.gte = new Date(req.query.from);
+    }
+    if (req.query.to !== undefined) {
+      where.createdAt.lt = new Date(req.query.to);
+    }
+  }
+
   const { data, total } = await listPosts({
     skip: (page - 1) * limit,
     take: limit,
     orderBy: { [sortBy]: order },
+    where,
   });
 
   const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
