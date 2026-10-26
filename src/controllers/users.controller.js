@@ -83,9 +83,19 @@ const list = async (req, res) => {
     }
   }
 
+  if (req.query.hasPosts !== undefined) {
+    if (req.query.hasPosts !== "true" && req.query.hasPosts !== "false") {
+      return res.status(400).json({ error: "hasPosts must be true or false" });
+    }
+  }
+
   const where = {};
   if (req.query.isPrivate !== undefined) {
     where.isPrivate = req.query.isPrivate === "true";
+  }
+
+  if (req.query.hasPosts !== undefined) {
+    where.posts = req.query.hasPosts === "true" ? { some: {} } : { none: {} };
   }
 
   if (req.query.search) {
