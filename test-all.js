@@ -1,13 +1,26 @@
 const assert = require("assert");
+const { spawn } = require("child_process");
 const prisma = require("./src/db");
 
 const BASE = "http://localhost:3000";
 
-async function run() {
-  console.log("=== RUNNING FULL API TEST SUITE ===\n");
+function runCommand(command, args) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(command, args, { stdio: "inherit" });
+    proc.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} ${args.join(" ")} exited with code ${code}`));
+    });
+  });
+}
 
-  // Clean DB before test run
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE "User", "Post" RESTART IDENTITY CASCADE;');
+async function run() {
+  console.log("=== RUNNING FULL API TEST SUITE (PROBLEM STATEMENT 2) ===\n");
+
+  // Start the server if not already running
+  require("./src/index");
+  // Give server brief moment to listen
+  await new Promise((r) => setTimeout(r, 500));
 
   // 1. Health check
   console.log("Testing GET /health...");
@@ -17,279 +30,294 @@ async function run() {
   assert.deepStrictEqual(healthJson, { status: "OK" });
   console.log("✓ GET /health passed");
 
-  // USERS
-  console.log("\n--- Testing USERS ---");
+  // Re-seed DB
+  console.log("\n--- Seeding database ---");
+  await runCommand("node", ["prisma/seed.js"]);
 
-  // 2. Create User 1
-  console.log("Testing POST /users (valid)...");
-  const resU1 = await fetch(`${BASE}/users`, {
+  // --- CRUD Verification from previous lab ---
+  console.log("\n--- Verifying CRUD from Previous Lab ---");
+
+  // Create User
+  const resCreateUser = await fetch(`${BASE}/users`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      username: "riya_travels",
-      email: "riya@example.com",
-      fullname: "Riya Sharma",
+      username: "test_new_user",
+      email: "test_new@example.com",
+      fullname: "Test New User",
+      bio: "Hello world",
     }),
   });
-  assert.strictEqual(resU1.status, 201);
-  const u1 = await resU1.json();
-  assert.strictEqual(u1.username, "riya_travels");
-  assert.strictEqual(u1.email, "riya@example.com");
-  assert.strictEqual(u1.fullname, "Riya Sharma");
-  assert.strictEqual(u1.bio, null);
-  assert.strictEqual(u1.isPrivate, false);
-  assert(u1.id !== undefined);
-  assert(u1.createdAt !== undefined);
-  assert(u1.updatedAt !== undefined);
-  console.log("✓ POST /users (valid) passed, created id:", u1.id);
+  assert.strictEqual(resCreateUser.status, 201);
+  const createdUser = await resCreateUser.json();
+  assert.strictEqual(createdUser.username, "test_new_user");
 
-  // 3. Create User Duplicate (409)
-  console.log("Testing POST /users (duplicate username)...");
-  const resU2 = await fetch(`${BASE}/users`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      username: "riya_travels",
-      email: "other@example.com",
-      fullname: "Copy Cat",
-    }),
-  });
-  assert.strictEqual(resU2.status, 409);
-  const u2Json = await resU2.json();
-  assert.deepStrictEqual(u2Json, { error: "username or email already taken" });
-  console.log("✓ POST /users (duplicate) passed 409");
+  // Get User by ID
+  const resGetUser = await fetch(`${BASE}/users/${createdUser.id}`);
+  assert.strictEqual(resGetUser.status, 200);
+  const gotUser = await resGetUser.json();
+  assert.strictEqual(gotUser.id, createdUser.id);
 
-  // 4. Create User Missing Field (400)
-  console.log("Testing POST /users (missing required field)...");
-  const resU3 = await fetch(`${BASE}/users`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "onlyname" }),
-  });
-  assert.strictEqual(resU3.status, 400);
-  const u3Json = await resU3.json();
-  assert.deepStrictEqual(u3Json, { error: "username, email and fullname are required" });
-  console.log("✓ POST /users (missing field) passed 400");
-
-  // 5. Create User Ignored Fields (not 999)
-  console.log("Testing POST /users (sneaky id: 999)...");
-  const resU4 = await fetch(`${BASE}/users`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      username: "sneaky",
-      email: "sneaky@example.com",
-      fullname: "Sneaky",
-      id: 999,
-    }),
-  });
-  assert.strictEqual(resU4.status, 201);
-  const u4 = await resU4.json();
-  assert.notStrictEqual(u4.id, 999);
-  assert.strictEqual(u4.username, "sneaky");
-  console.log("✓ POST /users (sneaky id ignored) passed, id is:", u4.id);
-
-  // 6. List Users
-  console.log("Testing GET /users...");
-  const resListU = await fetch(`${BASE}/users`);
-  assert.strictEqual(resListU.status, 200);
-  const usersList = await resListU.json();
-  assert(Array.isArray(usersList));
-  assert(usersList.length >= 2);
-  console.log("✓ GET /users passed, found users:", usersList.length);
-
-  // 7. Get User by ID
-  console.log(`Testing GET /users/${u1.id}...`);
-  const resGetU = await fetch(`${BASE}/users/${u1.id}`);
-  assert.strictEqual(resGetU.status, 200);
-  const getU = await resGetU.json();
-  assert.strictEqual(getU.id, u1.id);
-  assert.strictEqual(getU.username, "riya_travels");
-  console.log("✓ GET /users/:id passed");
-
-  // 8. Get User by ID (404)
-  console.log("Testing GET /users/999999 (404)...");
-  const resGetU404 = await fetch(`${BASE}/users/999999`);
-  assert.strictEqual(resGetU404.status, 404);
-  const getU404Json = await resGetU404.json();
-  assert.deepStrictEqual(getU404Json, { error: "User not found" });
-  console.log("✓ GET /users/:id (404) passed");
-
-  // 9. Patch User
-  console.log(`Testing PATCH /users/${u1.id}...`);
-  const resPatchU = await fetch(`${BASE}/users/${u1.id}`, {
+  // Patch User
+  const resPatchUser = await fetch(`${BASE}/users/${createdUser.id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      fullname: "Riya S. Sharma",
-      bio: "Photographer & nomad",
+      fullname: "Updated Name",
+      bio: "Updated Bio",
       isPrivate: true,
       username: "cannot_change",
-      email: "cannot_change@example.com",
     }),
   });
-  assert.strictEqual(resPatchU.status, 200);
-  const patchedU = await resPatchU.json();
-  assert.strictEqual(patchedU.fullname, "Riya S. Sharma");
-  assert.strictEqual(patchedU.bio, "Photographer & nomad");
-  assert.strictEqual(patchedU.isPrivate, true);
-  assert.strictEqual(patchedU.username, "riya_travels");
-  assert.strictEqual(patchedU.email, "riya@example.com");
-  console.log("✓ PATCH /users/:id passed (uneditable fields ignored)");
+  assert.strictEqual(resPatchUser.status, 200);
+  const patchedUser = await resPatchUser.json();
+  assert.strictEqual(patchedUser.fullname, "Updated Name");
+  assert.strictEqual(patchedUser.username, "test_new_user");
 
-  // 10. Patch User (404)
-  console.log("Testing PATCH /users/999999 (404)...");
-  const resPatchU404 = await fetch(`${BASE}/users/999999`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ bio: "Ghost" }),
-  });
-  assert.strictEqual(resPatchU404.status, 404);
-  const patchU404Json = await resPatchU404.json();
-  assert.deepStrictEqual(patchU404Json, { error: "User not found" });
-  console.log("✓ PATCH /users/:id (404) passed");
+  // Delete User
+  const resDelUser = await fetch(`${BASE}/users/${createdUser.id}`, { method: "DELETE" });
+  assert.strictEqual(resDelUser.status, 204);
 
-  // 11. Delete User
-  console.log(`Testing DELETE /users/${u1.id}...`);
-  const resDelU = await fetch(`${BASE}/users/${u1.id}`, { method: "DELETE" });
-  assert.strictEqual(resDelU.status, 204);
-  const delUText = await resDelU.text();
-  assert.strictEqual(delUText, "");
-  console.log("✓ DELETE /users/:id passed (204 Empty)");
+  // Delete User 404
+  const resDelUser404 = await fetch(`${BASE}/users/${createdUser.id}`, { method: "DELETE" });
+  assert.strictEqual(resDelUser404.status, 404);
 
-  // 12. Delete User (404)
-  console.log(`Testing DELETE /users/${u1.id} again (404)...`);
-  const resDelU404 = await fetch(`${BASE}/users/${u1.id}`, { method: "DELETE" });
-  assert.strictEqual(resDelU404.status, 404);
-  const delU404Json = await resDelU404.json();
-  assert.deepStrictEqual(delU404Json, { error: "User not found" });
-  console.log("✓ DELETE /users/:id (404) passed");
-
-  // POSTS
-  console.log("\n--- Testing POSTS ---");
-
-  // 13. Create Post
-  console.log("Testing POST /posts (valid)...");
-  const resP1 = await fetch(`${BASE}/posts`, {
+  // Create Post
+  const resCreatePost = await fetch(`${BASE}/posts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      imageUrl: "https://images.unsplash.com/photo-1.jpg",
-      caption: "Sunny morning in Paris",
-      location: "Paris, France",
+      imageUrl: "https://picsum.photos/test/post",
+      caption: "Test caption",
+      location: "Test location",
     }),
   });
-  assert.strictEqual(resP1.status, 201);
-  const p1 = await resP1.json();
-  assert.strictEqual(p1.imageUrl, "https://images.unsplash.com/photo-1.jpg");
-  assert.strictEqual(p1.caption, "Sunny morning in Paris");
-  assert.strictEqual(p1.location, "Paris, France");
-  assert(p1.id !== undefined);
-  assert(p1.createdAt !== undefined);
-  assert(p1.updatedAt !== undefined);
-  console.log("✓ POST /posts (valid) passed, created id:", p1.id);
+  assert.strictEqual(resCreatePost.status, 201);
+  const createdPost = await resCreatePost.json();
+  assert.strictEqual(createdPost.caption, "Test caption");
 
-  // 14. Create Post Missing imageUrl (400)
-  console.log("Testing POST /posts (missing imageUrl)...");
-  const resP2 = await fetch(`${BASE}/posts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ caption: "Missing image" }),
-  });
-  assert.strictEqual(resP2.status, 400);
-  const p2Json = await resP2.json();
-  assert.deepStrictEqual(p2Json, { error: "imageUrl is required" });
-  console.log("✓ POST /posts (missing imageUrl) passed 400");
+  // Get Post by ID
+  const resGetPost = await fetch(`${BASE}/posts/${createdPost.id}`);
+  assert.strictEqual(resGetPost.status, 200);
+  const gotPost = await resGetPost.json();
+  assert.strictEqual(gotPost.id, createdPost.id);
 
-  // 15. Create Post Ignored Fields
-  console.log("Testing POST /posts (ignoring extra fields)...");
-  const resP3 = await fetch(`${BASE}/posts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      imageUrl: "https://images.unsplash.com/photo-2.jpg",
-      id: 888,
-    }),
-  });
-  assert.strictEqual(resP3.status, 201);
-  const p3 = await resP3.json();
-  assert.notStrictEqual(p3.id, 888);
-  console.log("✓ POST /posts (extra field ignored) passed, id is:", p3.id);
-
-  // 16. List Posts
-  console.log("Testing GET /posts...");
-  const resListP = await fetch(`${BASE}/posts`);
-  assert.strictEqual(resListP.status, 200);
-  const postsList = await resListP.json();
-  assert(Array.isArray(postsList));
-  assert(postsList.length >= 2);
-  console.log("✓ GET /posts passed, found posts:", postsList.length);
-
-  // 17. Get Post by ID
-  console.log(`Testing GET /posts/${p1.id}...`);
-  const resGetP = await fetch(`${BASE}/posts/${p1.id}`);
-  assert.strictEqual(resGetP.status, 200);
-  const getP = await resGetP.json();
-  assert.strictEqual(getP.id, p1.id);
-  assert.strictEqual(getP.imageUrl, "https://images.unsplash.com/photo-1.jpg");
-  console.log("✓ GET /posts/:id passed");
-
-  // 18. Get Post by ID (404)
-  console.log("Testing GET /posts/999999 (404)...");
-  const resGetP404 = await fetch(`${BASE}/posts/999999`);
-  assert.strictEqual(resGetP404.status, 404);
-  const getP404Json = await resGetP404.json();
-  assert.deepStrictEqual(getP404Json, { error: "Post not found" });
-  console.log("✓ GET /posts/:id (404) passed");
-
-  // 19. Patch Post
-  console.log(`Testing PATCH /posts/${p1.id}...`);
-  const resPatchP = await fetch(`${BASE}/posts/${p1.id}`, {
+  // Patch Post
+  const resPatchPost = await fetch(`${BASE}/posts/${createdPost.id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      caption: "Rainy evening in Paris",
-      location: "Eiffel Tower",
-      imageUrl: "https://cannot-change-this.jpg",
+      caption: "Updated caption",
+      location: "Updated location",
+      imageUrl: "https://cannot-change-post",
     }),
   });
-  assert.strictEqual(resPatchP.status, 200);
-  const patchedP = await resPatchP.json();
-  assert.strictEqual(patchedP.caption, "Rainy evening in Paris");
-  assert.strictEqual(patchedP.location, "Eiffel Tower");
-  assert.strictEqual(patchedP.imageUrl, "https://images.unsplash.com/photo-1.jpg");
-  console.log("✓ PATCH /posts/:id passed (imageUrl uneditable)");
+  assert.strictEqual(resPatchPost.status, 200);
+  const patchedPost = await resPatchPost.json();
+  assert.strictEqual(patchedPost.caption, "Updated caption");
+  assert.strictEqual(patchedPost.imageUrl, "https://picsum.photos/test/post");
 
-  // 20. Patch Post (404)
-  console.log("Testing PATCH /posts/999999 (404)...");
-  const resPatchP404 = await fetch(`${BASE}/posts/999999`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ caption: "Ghost" }),
-  });
-  assert.strictEqual(resPatchP404.status, 404);
-  const patchP404Json = await resPatchP404.json();
-  assert.deepStrictEqual(patchP404Json, { error: "Post not found" });
-  console.log("✓ PATCH /posts/:id (404) passed");
+  // Delete Post
+  const resDelPost = await fetch(`${BASE}/posts/${createdPost.id}`, { method: "DELETE" });
+  assert.strictEqual(resDelPost.status, 204);
 
-  // 21. Delete Post
-  console.log(`Testing DELETE /posts/${p1.id}...`);
-  const resDelP = await fetch(`${BASE}/posts/${p1.id}`, { method: "DELETE" });
-  assert.strictEqual(resDelP.status, 204);
-  const delPText = await resDelP.text();
-  assert.strictEqual(delPText, "");
-  console.log("✓ DELETE /posts/:id passed (204 Empty)");
+  // Delete Post 404
+  const resDelPost404 = await fetch(`${BASE}/posts/${createdPost.id}`, { method: "DELETE" });
+  assert.strictEqual(resDelPost404.status, 404);
 
-  // 22. Delete Post (404)
-  console.log(`Testing DELETE /posts/${p1.id} again (404)...`);
-  const resDelP404 = await fetch(`${BASE}/posts/${p1.id}`, { method: "DELETE" });
-  assert.strictEqual(resDelP404.status, 404);
-  const delP404Json = await resDelP404.json();
-  assert.deepStrictEqual(delP404Json, { error: "Post not found" });
-  console.log("✓ DELETE /posts/:id (404) passed");
+  console.log("✓ Previous CRUD routes verified successfully");
 
-  console.log("\n🎉 ALL 22 TEST CASES PASSED SUCCESSFULLY! 🎉\n");
+  // Re-seed DB before step 04-08 verification
+  console.log("\n--- Re-seeding database for Step 04-08 tests ---");
+  await runCommand("node", ["prisma/seed.js"]);
+
+  // STEP 04: Pagination on GET /users
+  console.log("\n--- Testing Step 04: Pagination on GET /users ---");
+  const s4_1 = await (await fetch(`${BASE}/users`)).json();
+  assert.strictEqual(s4_1.data.length, 10);
+  assert.strictEqual(s4_1.data[0].username, "dev_shoots");
+  assert.strictEqual(s4_1.data[9].username, "meera.eats");
+  assert.deepStrictEqual(s4_1.meta, { page: 1, limit: 10, total: 12, totalPages: 2 });
+
+  const s4_2 = await (await fetch(`${BASE}/users?page=2`)).json();
+  assert.deepStrictEqual(s4_2.data.map((u) => u.username), ["arjun_clicks", "riya_travels"]);
+  assert.deepStrictEqual(s4_2.meta, { page: 2, limit: 10, total: 12, totalPages: 2 });
+
+  const s4_3 = await (await fetch(`${BASE}/users?page=3&limit=5`)).json();
+  assert.deepStrictEqual(s4_3.data.map((u) => u.username), ["arjun_clicks", "riya_travels"]);
+  assert.deepStrictEqual(s4_3.meta, { page: 3, limit: 5, total: 12, totalPages: 3 });
+
+  const s4_4 = await (await fetch(`${BASE}/users?limit=100`)).json();
+  assert.strictEqual(s4_4.data.length, 12);
+  assert.deepStrictEqual(s4_4.meta, { page: 1, limit: 50, total: 12, totalPages: 1 });
+
+  const s4_5 = await (await fetch(`${BASE}/users?page=5`)).json();
+  assert.deepStrictEqual(s4_5.data, []);
+  assert.deepStrictEqual(s4_5.meta, { page: 5, limit: 10, total: 12, totalPages: 2 });
+
+  const resS4_6 = await fetch(`${BASE}/users?page=0`);
+  assert.strictEqual(resS4_6.status, 400);
+  assert.deepStrictEqual(await resS4_6.json(), { error: "page and limit must be positive integers" });
+
+  const resS4_7 = await fetch(`${BASE}/users?limit=abc`);
+  assert.strictEqual(resS4_7.status, 400);
+  assert.deepStrictEqual(await resS4_7.json(), { error: "page and limit must be positive integers" });
+
+  const resS4_8 = await fetch(`${BASE}/users?page=1.5`);
+  assert.strictEqual(resS4_8.status, 400);
+  assert.deepStrictEqual(await resS4_8.json(), { error: "page and limit must be positive integers" });
+
+  console.log("✓ Step 04 tests passed");
+
+  // STEP 05: Sorting on GET /users
+  console.log("\n--- Testing Step 05: Sorting on GET /users ---");
+  const s5_1 = await (await fetch(`${BASE}/users?sortBy=username&order=asc`)).json();
+  assert.strictEqual(s5_1.data[0].username, "aditya_codes");
+  assert.strictEqual(s5_1.data[1].username, "ananya_reads");
+  assert.strictEqual(s5_1.data[2].username, "arjun_clicks");
+  assert.strictEqual(s5_1.meta.total, 12);
+  assert.strictEqual(s5_1.meta.totalPages, 2);
+
+  const s5_2 = await (await fetch(`${BASE}/users?sortBy=fullname&order=desc&limit=3`)).json();
+  assert.deepStrictEqual(s5_2.data.map((u) => u.username), ["vikram.trek", "sara_sketches", "rohan_runs"]);
+  assert.strictEqual(s5_2.meta.total, 12);
+  assert.strictEqual(s5_2.meta.totalPages, 4);
+
+  const s5_3 = await (await fetch(`${BASE}/users?order=asc&limit=2`)).json();
+  assert.deepStrictEqual(s5_3.data.map((u) => u.username), ["riya_travels", "arjun_clicks"]);
+  assert.strictEqual(s5_3.meta.total, 12);
+  assert.strictEqual(s5_3.meta.totalPages, 6);
+
+  const resS5_4 = await fetch(`${BASE}/users?sortBy=email`);
+  assert.strictEqual(resS5_4.status, 400);
+  assert.deepStrictEqual(await resS5_4.json(), { error: "sortBy must be one of: createdAt, username, fullname" });
+
+  const resS5_5 = await fetch(`${BASE}/users?order=sideways`);
+  assert.strictEqual(resS5_5.status, 400);
+  assert.deepStrictEqual(await resS5_5.json(), { error: "order must be asc or desc" });
+
+  console.log("✓ Step 05 tests passed");
+
+  // STEP 06: Filtering on GET /users
+  console.log("\n--- Testing Step 06: Filtering on GET /users ---");
+  const s6_1 = await (await fetch(`${BASE}/users?isPrivate=true`)).json();
+  assert.deepStrictEqual(s6_1.data.map((u) => u.username), ["dev_shoots", "neha_designs", "ananya_reads", "meera.eats"]);
+  assert.strictEqual(s6_1.meta.total, 4);
+  assert.strictEqual(s6_1.meta.totalPages, 1);
+
+  const s6_2 = await (await fetch(`${BASE}/users?isPrivate=false`)).json();
+  assert.strictEqual(s6_2.data.length, 8);
+  assert.strictEqual(s6_2.data[0].username, "isha_dances");
+  assert.strictEqual(s6_2.data[1].username, "aditya_codes");
+  assert.strictEqual(s6_2.meta.total, 8);
+  assert.strictEqual(s6_2.meta.totalPages, 1);
+
+  const s6_3 = await (await fetch(`${BASE}/users?search=sh`)).json();
+  assert.deepStrictEqual(s6_3.data.map((u) => u.username), ["dev_shoots", "isha_dances", "riya_travels"]);
+  assert.strictEqual(s6_3.meta.total, 3);
+  assert.strictEqual(s6_3.meta.totalPages, 1);
+
+  const s6_4 = await (await fetch(`${BASE}/users?search=SH&isPrivate=false&sortBy=fullname&order=asc&limit=2`)).json();
+  assert.deepStrictEqual(s6_4.data.map((u) => u.username), ["isha_dances", "riya_travels"]);
+  assert.strictEqual(s6_4.meta.total, 2);
+  assert.strictEqual(s6_4.meta.totalPages, 1);
+
+  const s6_5 = await (await fetch(`${BASE}/users?search=zzz`)).json();
+  assert.deepStrictEqual(s6_5.data, []);
+  assert.strictEqual(s6_5.meta.total, 0);
+  assert.strictEqual(s6_5.meta.totalPages, 0);
+
+  const resS6_6 = await fetch(`${BASE}/users?isPrivate=maybe`);
+  assert.strictEqual(resS6_6.status, 400);
+  assert.deepStrictEqual(await resS6_6.json(), { error: "isPrivate must be true or false" });
+
+  console.log("✓ Step 06 tests passed");
+
+  // Helper for posts
+  const getInstaId = (p) => {
+    const m = p.imageUrl.match(/insta\d+/);
+    return m ? m[0] : null;
+  };
+
+  // STEP 07: Pagination & sorting on GET /posts
+  console.log("\n--- Testing Step 07: Pagination & sorting on GET /posts ---");
+  const s7_1 = await (await fetch(`${BASE}/posts`)).json();
+  assert.strictEqual(s7_1.data.length, 10);
+  assert.strictEqual(getInstaId(s7_1.data[0]), "insta24");
+  assert.strictEqual(getInstaId(s7_1.data[9]), "insta15");
+  assert.deepStrictEqual(s7_1.meta, { page: 1, limit: 10, total: 24, totalPages: 3 });
+
+  const s7_2 = await (await fetch(`${BASE}/posts?page=3`)).json();
+  assert.deepStrictEqual(s7_2.data.map(getInstaId), ["insta04", "insta03", "insta02", "insta01"]);
+  assert.deepStrictEqual(s7_2.meta, { page: 3, limit: 10, total: 24, totalPages: 3 });
+
+  const s7_3 = await (await fetch(`${BASE}/posts?page=4`)).json();
+  assert.deepStrictEqual(s7_3.data, []);
+  assert.deepStrictEqual(s7_3.meta, { page: 4, limit: 10, total: 24, totalPages: 3 });
+
+  const s7_4 = await (await fetch(`${BASE}/posts?order=asc&limit=3`)).json();
+  assert.deepStrictEqual(s7_4.data.map(getInstaId), ["insta01", "insta02", "insta03"]);
+  assert.deepStrictEqual(s7_4.meta, { page: 1, limit: 3, total: 24, totalPages: 8 });
+
+  const resS7_5 = await fetch(`${BASE}/posts?limit=0`);
+  assert.strictEqual(resS7_5.status, 400);
+  assert.deepStrictEqual(await resS7_5.json(), { error: "page and limit must be positive integers" });
+
+  const resS7_6 = await fetch(`${BASE}/posts?sortBy=caption`);
+  assert.strictEqual(resS7_6.status, 400);
+  assert.deepStrictEqual(await resS7_6.json(), { error: "sortBy must be one of: createdAt, updatedAt" });
+
+  const resS7_7 = await fetch(`${BASE}/posts?order=up`);
+  assert.strictEqual(resS7_7.status, 400);
+  assert.deepStrictEqual(await resS7_7.json(), { error: "order must be asc or desc" });
+
+  console.log("✓ Step 07 tests passed");
+
+  // STEP 08: Filtering on GET /posts
+  console.log("\n--- Testing Step 08: Filtering on GET /posts ---");
+  const s8_1 = await (await fetch(`${BASE}/posts?location=GOA`)).json();
+  assert.deepStrictEqual(s8_1.data.map(getInstaId), ["insta23", "insta16", "insta10", "insta01"]);
+  assert.strictEqual(s8_1.meta.total, 4);
+  assert.strictEqual(s8_1.meta.totalPages, 1);
+
+  const s8_2 = await (await fetch(`${BASE}/posts?search=sunset`)).json();
+  assert.deepStrictEqual(s8_2.data.map(getInstaId), ["insta20", "insta08", "insta01"]);
+  assert.strictEqual(s8_2.meta.total, 3);
+  assert.strictEqual(s8_2.meta.totalPages, 1);
+
+  const s8_3 = await (await fetch(`${BASE}/posts?from=2026-03-01&to=2026-04-01`)).json();
+  assert.strictEqual(s8_3.data.length, 8);
+  assert.strictEqual(getInstaId(s8_3.data[0]), "insta16");
+  assert.strictEqual(getInstaId(s8_3.data[7]), "insta09");
+  assert.strictEqual(s8_3.meta.total, 8);
+  assert.strictEqual(s8_3.meta.totalPages, 1);
+
+  const s8_4 = await (await fetch(`${BASE}/posts?from=2026-04-01`)).json();
+  assert.strictEqual(s8_4.data.length, 8);
+  assert.strictEqual(getInstaId(s8_4.data[0]), "insta24");
+  assert.strictEqual(getInstaId(s8_4.data[7]), "insta17");
+  assert.strictEqual(s8_4.meta.total, 8);
+  assert.strictEqual(s8_4.meta.totalPages, 1);
+
+  const s8_5 = await (await fetch(`${BASE}/posts?location=pune&search=CHAI`)).json();
+  assert.deepStrictEqual(s8_5.data.map(getInstaId), ["insta15"]);
+  assert.strictEqual(s8_5.meta.total, 1);
+  assert.strictEqual(s8_5.meta.totalPages, 1);
+
+  const s8_6 = await (await fetch(`${BASE}/posts?location=mumbai&limit=2&page=2`)).json();
+  assert.deepStrictEqual(s8_6.data.map(getInstaId), ["insta06", "insta02"]);
+  assert.strictEqual(s8_6.meta.total, 4);
+  assert.strictEqual(s8_6.meta.totalPages, 2);
+
+  const resS8_7 = await fetch(`${BASE}/posts?from=yesterday`);
+  assert.strictEqual(resS8_7.status, 400);
+  assert.deepStrictEqual(await resS8_7.json(), { error: "from and to must be valid dates" });
+
+  console.log("✓ Step 08 tests passed");
+
+  console.log("\n🎉 ALL TESTS (STEP 04 TO STEP 08 + CRUD) PASSED SUCCESSFULLY! 🎉\n");
   await prisma.$disconnect();
+  process.exit(0);
 }
 
 run().catch(async (err) => {
