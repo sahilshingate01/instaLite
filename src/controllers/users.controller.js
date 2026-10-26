@@ -3,6 +3,7 @@ const {
   listUsers,
   getUserById,
   getUserPosts,
+  getUserLikedPosts,
   updateUser,
   deleteUser,
 } = require("../services/users.service");
@@ -131,6 +132,27 @@ const getPosts = async (req, res) => {
   });
 };
 
+const getLikedPosts = async (req, res) => {
+  const userId = Number(req.params.id);
+  const user = await getUserById(userId);
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const pagination = parsePagination(req.query);
+  if (pagination.error) {
+    return res.status(400).json({ error: pagination.error });
+  }
+
+  const { page, limit, skip } = pagination;
+  const { data, total } = await getUserLikedPosts(userId, { skip, take: limit });
+
+  res.json({
+    data,
+    meta: formatPaginationMeta(total, page, limit),
+  });
+};
+
 const update = async (req, res) => {
   try {
     const data = {};
@@ -154,4 +176,12 @@ const remove = async (req, res) => {
   }
 };
 
-module.exports = { create, list, getOne, getPosts, update, remove };
+module.exports = {
+  create,
+  list,
+  getOne,
+  getPosts,
+  getLikedPosts,
+  update,
+  remove,
+};

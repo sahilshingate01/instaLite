@@ -69,11 +69,49 @@ const getUserPosts = async (userId, { skip, take } = {}) => {
   return { data, total };
 };
 
+const getUserLikedPosts = async (userId, { skip, take } = {}) => {
+  const [data, total] = await prisma.$transaction([
+    prisma.post.findMany({
+      where: {
+        likes: {
+          some: { userId },
+        },
+      },
+      skip,
+      take,
+      orderBy: { createdAt: "desc" },
+      include: {
+        author: {
+          select: {
+            id: true,
+            username: true,
+            fullname: true,
+          },
+        },
+        _count: {
+          select: {
+            likes: true,
+          },
+        },
+      },
+    }),
+    prisma.post.count({
+      where: {
+        likes: {
+          some: { userId },
+        },
+      },
+    }),
+  ]);
+  return { data, total };
+};
+
 module.exports = {
   createUser,
   listUsers,
   getUserById,
   getUserPosts,
+  getUserLikedPosts,
   updateUser,
   deleteUser,
 };
