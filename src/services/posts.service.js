@@ -13,6 +13,20 @@ const listPosts = async ({ skip, take, orderBy = { createdAt: "desc" }, where } 
       take,
       orderBy,
       where,
+      include: {
+        author: {
+          select: {
+            id: true,
+            username: true,
+            fullname: true,
+          },
+        },
+        _count: {
+          select: {
+            likes: true,
+          },
+        },
+      },
     }),
     prisma.post.count({ where }),
   ]);

@@ -72,13 +72,13 @@ const list = async (req, res) => {
     }
   }
 
-  const allowedSortBy = ["createdAt", "updatedAt"];
+  const allowedSortBy = ["createdAt", "updatedAt", "likes"];
   let sortBy = "createdAt";
   if (req.query.sortBy !== undefined) {
     if (!allowedSortBy.includes(req.query.sortBy)) {
       return res
         .status(400)
-        .json({ error: "sortBy must be one of: createdAt, updatedAt" });
+        .json({ error: "sortBy must be one of: createdAt, updatedAt, likes" });
     }
     sortBy = req.query.sortBy;
   }
@@ -134,10 +134,15 @@ const list = async (req, res) => {
     }
   }
 
+  const orderBy =
+    sortBy === "likes"
+      ? [{ likes: { _count: order } }, { createdAt: "desc" }]
+      : { [sortBy]: order };
+
   const { data, total } = await listPosts({
     skip: (page - 1) * limit,
     take: limit,
-    orderBy: { [sortBy]: order },
+    orderBy,
     where,
   });
 
