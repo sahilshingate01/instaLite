@@ -5,6 +5,10 @@ const {
   updatePost,
   deletePost,
 } = require("../services/posts.service");
+const {
+  parsePagination,
+  formatPaginationMeta,
+} = require("../utils/pagination");
 
 const create = async (req, res) => {
   try {
@@ -42,35 +46,12 @@ const isValidDate = (val) => {
   return !isNaN(d.getTime());
 };
 
-const isPositiveInteger = (val) => {
-  if (typeof val !== "string") return false;
-  return /^[1-9]\d*$/.test(val);
-};
-
 const list = async (req, res) => {
-  let page = 1;
-  let limit = 10;
-
-  if (req.query.page !== undefined) {
-    if (!isPositiveInteger(req.query.page)) {
-      return res
-        .status(400)
-        .json({ error: "page and limit must be positive integers" });
-    }
-    page = parseInt(req.query.page, 10);
+  const pagination = parsePagination(req.query);
+  if (pagination.error) {
+    return res.status(400).json({ error: pagination.error });
   }
-
-  if (req.query.limit !== undefined) {
-    if (!isPositiveInteger(req.query.limit)) {
-      return res
-        .status(400)
-        .json({ error: "page and limit must be positive integers" });
-    }
-    limit = parseInt(req.query.limit, 10);
-    if (limit > 50) {
-      limit = 50;
-    }
-  }
+  const { page, limit, skip } = pagination;
 
   const allowedSortBy = ["createdAt", "updatedAt", "likes"];
   let sortBy = "createdAt";
@@ -140,22 +121,15 @@ const list = async (req, res) => {
       : { [sortBy]: order };
 
   const { data, total } = await listPosts({
-    skip: (page - 1) * limit,
+    skip,
     take: limit,
     orderBy,
     where,
   });
 
-  const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
-
   res.json({
     data,
-    meta: {
-      page,
-      limit,
-      total,
-      totalPages,
-    },
+    meta: formatPaginationMeta(total, page, limit),
   });
 };
 

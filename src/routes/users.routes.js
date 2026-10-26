@@ -5,6 +5,7 @@ const {
   create,
   list,
   getOne,
+  getPosts,
   update,
   remove,
 } = require("../controllers/users.controller");
@@ -12,6 +13,7 @@ const {
 router.post("/", create);
 router.get("/", list);
 router.get("/:id", getOne);
+router.get("/:id/posts", getPosts);
 router.patch("/:id", update);
 router.delete("/:id", remove);
 

@@ -2,9 +2,14 @@ const {
   createUser,
   listUsers,
   getUserById,
+  getUserPosts,
   updateUser,
   deleteUser,
 } = require("../services/users.service");
+const {
+  parsePagination,
+  formatPaginationMeta,
+} = require("../utils/pagination");
 
 const create = async (req, res) => {
   try {
@@ -27,35 +32,12 @@ const create = async (req, res) => {
   }
 };
 
-const isPositiveInteger = (val) => {
-  if (typeof val !== "string") return false;
-  return /^[1-9]\d*$/.test(val);
-};
-
 const list = async (req, res) => {
-  let page = 1;
-  let limit = 10;
-
-  if (req.query.page !== undefined) {
-    if (!isPositiveInteger(req.query.page)) {
-      return res
-        .status(400)
-        .json({ error: "page and limit must be positive integers" });
-    }
-    page = parseInt(req.query.page, 10);
+  const pagination = parsePagination(req.query);
+  if (pagination.error) {
+    return res.status(400).json({ error: pagination.error });
   }
-
-  if (req.query.limit !== undefined) {
-    if (!isPositiveInteger(req.query.limit)) {
-      return res
-        .status(400)
-        .json({ error: "page and limit must be positive integers" });
-    }
-    limit = parseInt(req.query.limit, 10);
-    if (limit > 50) {
-      limit = 50;
-    }
-  }
+  const { page, limit, skip } = pagination;
 
   const allowedSortBy = ["createdAt", "username", "fullname"];
   let sortBy = "createdAt";
@@ -106,22 +88,15 @@ const list = async (req, res) => {
   }
 
   const { data, total } = await listUsers({
-    skip: (page - 1) * limit,
+    skip,
     take: limit,
     orderBy: { [sortBy]: order },
     where,
   });
 
-  const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
-
   res.json({
     data,
-    meta: {
-      page,
-      limit,
-      total,
-      totalPages,
-    },
+    meta: formatPaginationMeta(total, page, limit),
   });
 };
 
@@ -133,6 +108,27 @@ const getOne = async (req, res) => {
   }
 
   res.json(user);
+};
+
+const getPosts = async (req, res) => {
+  const userId = Number(req.params.id);
+  const user = await getUserById(userId);
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const pagination = parsePagination(req.query);
+  if (pagination.error) {
+    return res.status(400).json({ error: pagination.error });
+  }
+
+  const { page, limit, skip } = pagination;
+  const { data, total } = await getUserPosts(userId, { skip, take: limit });
+
+  res.json({
+    data,
+    meta: formatPaginationMeta(total, page, limit),
+  });
 };
 
 const update = async (req, res) => {
@@ -158,4 +154,4 @@ const remove = async (req, res) => {
   }
 };
 
-module.exports = { create, list, getOne, update, remove };
+module.exports = { create, list, getOne, getPosts, update, remove };
