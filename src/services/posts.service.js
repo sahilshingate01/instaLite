@@ -6,8 +6,17 @@ const createPost = async (data) => {
   });
 };
 
-const listPosts = async () => {
-  return await prisma.post.findMany();
+const listPosts = async ({ skip, take, orderBy = { createdAt: "desc" }, where } = {}) => {
+  const [data, total] = await prisma.$transaction([
+    prisma.post.findMany({
+      skip,
+      take,
+      orderBy,
+      where,
+    }),
+    prisma.post.count({ where }),
+  ]);
+  return { data, total };
 };
 
 const getPostById = async (id) => {
